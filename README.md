@@ -1,20 +1,20 @@
 # pyfilesystem_dokan
 PyFilesystem2 dokan mount function from PyFileystem
 
-This is the dokan mount function (fs.expose.dokan) from [PyFilesystem](https://github.com/PyFilesystem/pyfilesystem) modified to work with [PyFilesystem2](https://github.com/PyFilesystem/pyfilesystem) with the [Dokany](https://github.com/dokan-dev/dokany) Library
-
 ## About
-This is an early port of the original PyFilesystem fs.expose.dokan to work with PyFilesystem2, you will need PyFilesystem2 and Dokan installed and python3, right now some basic functionality like copying and opening files are working
+Is the dokan mount function (fs.expose.dokan) from [PyFilesystem](https://github.com/PyFilesystem/pyfilesystem) modified to work with [PyFilesystem2](https://github.com/PyFilesystem/pyfilesystem) with the [Dokany](https://github.com/dokan-dev/dokany) Library
 
-### Usage
-Open pyfsdokan.py for an example, proper documentation would be added eventually, sorry for the inconvinience 
+This is an early port of the original PyFilesystem fs.expose.dokan to work with PyFilesystem2, you will need python3, PyFilesystem2 and Dokan installed.
 
-## Other information
 TODO:
-- Removing/Update all reference to old PyFilesystem functions for the appropiated ones
+- Removing/Update all reference to old PyFilesystem functions for the appropiated ones from PyFilesystem2
 - Add Documentation
 - Code comments
 
-Please report all the problems you encounter, preferably with an steb-by-step example for recreting it, right now, I have tested OSFS and MemoryFS with open/viewing and copying working on both, and create/writing working in OSFS.
+Please report all the problems you encounter, preferably with an steb-by-step example for recreting it, it's been tested with OSFS and MemoryFS with open/viewing and copying files working on both, and create/writing working in OSFS.
 
-This piece of code is very early stage, took me some time to find where some functions where located or named, diferences in the parameters to take the required information, 
+## Usage
+Open pyfsdokan.py for an example, proper documentation would be added eventually, sorry for the inconvinience 
+
+## Other information
+I will update the code as soon as find more time to give to this project, but feel free to contribute reporting errors, or to the code. I ported the code as needed to open files from the MemoryFS without copying to a physical drive and therefore not everything is tested, be carefull as no warranty is granted.
