@@ -61,7 +61,6 @@ systems with Dokan installed.
 #  Copyright (c) 2016-2016, Adrien J. <liryna.stark@gmail.com>.
 #  All rights reserved; available under the terms of the MIT License.
 
-
 import ctypes
 import datetime
 import errno
@@ -81,12 +80,9 @@ from fs.path import *
 from fs.wrapfs import WrapFS
 
 import fs_legacy
-#import errors
-#from pathmap import PathMap
-from six.moves import range
 
 try:
-	import pickle as pickle
+	import cPickle as pickle
 except ImportError:
 	import pickle
 
@@ -101,6 +97,7 @@ else:
 	from ctypes.wintypes import LPCWSTR, WCHAR
 	kernel32 = ctypes.windll.kernel32
 
+logger = logging.getLogger("fs.expose.dokan")
 
 #  Options controlling the behavior of the Dokan filesystem
 #  Ouput debug message
@@ -441,7 +438,6 @@ class FSOperations(object):
 			if disposition == FILE_CREATE:
 				if self.fs.exists(path):
 					retcode = STATUS_OBJECT_NAME_COLLISION
-				else:
 					self.fs.makedir(path)
 			elif disposition == FILE_OPEN_IF:
 				if not self.fs.exists(path):
@@ -554,8 +550,7 @@ class FSOperations(object):
 				self._rereg_file(info.contents.Context, file)
 			file.seek(offset)
 			data = file.read(nBytesToRead)
-			ctypes.memmove(
-				buffer, ctypes.create_string_buffer(data), len(data))
+			ctypes.memmove(buffer, ctypes.create_string_buffer(data), len(data))
 			nBytesRead[0] = len(data)
 		finally:
 			lock.release()
@@ -638,8 +633,6 @@ class FSOperations(object):
 	@handle_fs_errors
 	def FindFiles(self, path, fillFindData, info):
 		path = self._dokanpath2pyfs(path)
-		# for (nm, finfo) in self.fs.listdirinfo(path):
-		# for (nm, finfo) in FS.listdirinfo(path):
 		for p in self.fs.listdir(path):
 			fpath = join(path, p)
 			coded = self.fs.getinfo(fpath, namespaces=['details','access'])
@@ -659,7 +652,6 @@ class FSOperations(object):
 	@handle_fs_errors
 	def FindFilesWithPattern(self, path, pattern, fillFindData, info):
 		path = self._dokanpath2pyfs(path)
-		# for (nm, finfo) in base.fs.listdirinfo(path):
 		for p in self.fs.listdir(path):
 			fpath = join(path, p)
 			coded = self.fs.getinfo(fpath, namespaces=['details','access'])
@@ -747,7 +739,7 @@ class FSOperations(object):
 		if info.contents.IsDirectory:
 			self.fs.movedir(src, dst, create=True)
 		else:
-			self.fs.move(src, dst, overwrite=False)
+			self.fs.move(src, dst, overwrite=True)
 		return STATUS_SUCCESS
 
 	@timeout_protect
@@ -776,7 +768,7 @@ class FSOperations(object):
 		#nBytesFree[0] = self.fs.getmeta("free_space", (large_amount))
 		#nBytesTotal[0] = self.fs.getmeta("total_space", (2 * large_amount))
 		nBytesFree[0] = (large_amount)
-		nBytesTotal[0] = (2 * large_amount)
+		nBytesTotal[0] = (2 * large_amount) #self.fs.getsize()
 		nBytesAvail[0] = nBytesFree[0]
 		return STATUS_SUCCESS
 
@@ -842,14 +834,12 @@ class FSOperations(object):
 
 	@handle_fs_errors
 	def GetFileSecurity(self, path, securityinformation, securitydescriptor, securitydescriptorlength, neededlength, info):
-		securitydescriptor = ctypes.cast(
-			securitydescriptor, libdokan.PSECURITY_DESCRIPTOR)
+		securitydescriptor = ctypes.cast(securitydescriptor, libdokan.PSECURITY_DESCRIPTOR)
 		path = self._dokanpath2pyfs(path)
 		if self.fs.isdir(path):
 			res = libdokan.GetFileSecurity(
 				self.securityfolder,
-				ctypes.cast(securityinformation,
-							libdokan.PSECURITY_INFORMATION)[0],
+				ctypes.cast(securityinformation, libdokan.PSECURITY_INFORMATION)[0],
 				securitydescriptor,
 				securitydescriptorlength,
 				neededlength,
@@ -966,8 +956,7 @@ def _errno2syserrcode(eno):
 	return eno
 
 
-# TODO Probably os.path has a better check for this...
-def _check_path_string(path):
+def _check_path_string(path):  # TODO Probably os.path has a better check for this...
 	"""Check path string."""
 	if not path or not path[0].isalpha() or not path[1:3] == ':\\':
 		raise ValueError("invalid path: %r" % (path,))
@@ -1011,7 +1000,7 @@ def mount(fs, path, foreground=False, ready_callback=None, unmount_callback=None
 	def check_ready(mp=None):
 		if ready_callback is not False:
 			check_alive(mp)
-			for _ in range(100):
+			for _ in  six.moves.range(100):
 				try:
 					os.stat(path)
 				except EnvironmentError:
@@ -1114,20 +1103,17 @@ class MountProcess(subprocess.Popen):
 	def unmount(self):
 		"""Cleanly unmount the Dokan filesystem, terminating this subprocess."""
 		if not libdokan.DokanRemoveMountPoint(self.path):
-			raise OSError(
-				"the filesystem could not be unmounted: %s" % (self.path,))
+			raise OSError("the filesystem could not be unmounted: %s" %(self.path,))
 		self.terminate()
 
 	if not hasattr(subprocess.Popen, "terminate"):
 		def terminate(self):
 			"""Gracefully terminate the subprocess."""
-			#kernel32.TerminateProcess(int(self._handle), -1)
 			kernel32.TerminateProcess(int(self), -1)
 
 	if not hasattr(subprocess.Popen, "kill"):
 		def kill(self):
 			"""Forcibly terminate the subprocess."""
-			#kernel32.TerminateProcess(int(self._handle), -1)
 			kernel32.TerminateProcess(int(self), -1)
 
 	@staticmethod
@@ -1185,14 +1171,10 @@ if __name__ == "__main__":
 	from six import b
 	path = tempfile.mkdtemp()
 	try:
-		fs = OSFS(path)
-		#fs = MemoryFS()
-		#fs.setcontents("test1.txt", b("test one"))
+		#fs = OSFS(path)
+		fs = MemoryFS()
 		fs.create('test.txt')
-		sys.getsizeof(fs)
-		
-		fs.appendtext('test.txt', 'this is a test',
-								  encoding=u'utf-8', errors=None, newline=u'')
+		fs.appendtext('test.txt', 'this is a test', encoding=u'utf-8', errors=None, newline=u'')
 		flags = DOKAN_OPTION_DEBUG | DOKAN_OPTION_STDERR | DOKAN_OPTION_REMOVABLE
 		mount(fs, "Q:\\", foreground=True, numthreads=1, flags=flags)
 		fs.close()
