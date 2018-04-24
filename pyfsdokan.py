@@ -62,27 +62,33 @@ systems with Dokan installed.
 #  All rights reserved; available under the terms of the MIT License.
 
 
-import six
-import sys
-import os
+import ctypes
+import datetime
 import errno
-import time
+import logging
+import os
 import stat as statinfo
 import subprocess
+import sys
+import threading
+import time
+from collections import deque
+from functools import wraps
+
+import six
+from fs.errors import *
+from fs.path import *
+from fs.wrapfs import WrapFS
+
+import fs_legacy
+#import errors
+#from pathmap import PathMap
+from six.moves import range
+
 try:
 	import pickle as pickle
 except ImportError:
 	import pickle
-import datetime
-import ctypes
-from collections import deque
-from six.moves import range
-
-from base import threading, FS
-from errors import *
-from path import *
-from local_functools import wraps
-from wrapfs import WrapFS
 
 try:
 	import libdokan
@@ -94,8 +100,6 @@ else:
 	is_available = True
 	from ctypes.wintypes import LPCWSTR, WCHAR
 	kernel32 = ctypes.windll.kernel32
-
-import logging
 
 
 #  Options controlling the behavior of the Dokan filesystem
@@ -204,7 +208,7 @@ def handle_fs_errors(func):
 	makes the function return zero instead of None as an indication of
 	successful execution.
 	"""
-	func = convert_fs_errors(func)
+	func = fs_legacy.convert_fs_errors(func)
 
 	@wraps(func)
 	def wrapper(*args, **kwds):
@@ -324,12 +328,12 @@ class FSOperations(object):
 		self._pending_delete = set()
 		#  Since pyfilesystem has no locking API, we manage file locks
 		#  in memory.  This maps paths to a list of current locks.
-		self._active_locks = PathMap()
+		self._active_locks = fs_legacy.PathMap()
 		#  Dokan expects a succesful write() to be reflected in the file's
 		#  reported size, but the FS might buffer writes and prevent this.
 		#  We explicitly keep track of the size Dokan expects a file to be.
 		#  This dict is indexed by path, then file handle.
-		self._files_size_written = PathMap()
+		self._files_size_written = fs_legacy.PathMap()
 
 	def get_ops_struct(self):
 		"""Get a DOKAN_OPERATIONS struct mapping to our methods."""
@@ -483,7 +487,7 @@ class FSOperations(object):
 			try:
 				f = self.fs.open(path, mode)
 				#  print(path, mode, repr(f))
-			except ResourceInvalidError:
+			except ResourceInvalid:
 				info.contents.IsDirectory = True
 			except FSError:
 				#  Sadly, win32 OSFS will raise all kinds of strange errors
@@ -637,7 +641,7 @@ class FSOperations(object):
 		# for (nm, finfo) in self.fs.listdirinfo(path):
 		# for (nm, finfo) in FS.listdirinfo(path):
 		for p in self.fs.listdir(path):
-			fpath = pathjoin(path, p)
+			fpath = join(path, p)
 			coded = self.fs.getinfo(fpath, namespaces=['details','access'])
 			finfo = coded.raw['details']
 			try:
@@ -657,7 +661,7 @@ class FSOperations(object):
 		path = self._dokanpath2pyfs(path)
 		# for (nm, finfo) in base.fs.listdirinfo(path):
 		for p in self.fs.listdir(path):
-			fpath = pathjoin(path, p)
+			fpath = join(path, p)
 			coded = self.fs.getinfo(fpath, namespaces=['details','access'])
 			finfo = coded.raw['details']
 			try:
@@ -698,7 +702,7 @@ class FSOperations(object):
 		#  some programs demand this succeed; fake it
 		try:
 			self.fs.settimes(path, atime, mtime)
-		except UnsupportedError:
+		except Unsupported:
 			pass
 		return STATUS_SUCCESS
 
@@ -720,7 +724,7 @@ class FSOperations(object):
 	def DeleteDirectory(self, path, info):
 		path = self._dokanpath2pyfs(path)
 		for nm in self.fs.listdir(path):
-			if not self._is_pending_delete(pathjoin(path, nm)):
+			if not self._is_pending_delete(join(path, nm)):
 				return STATUS_DIRECTORY_NOT_EMPTY
 		self._pending_delete.add(path)
 		# the actual delete takes place in self.CloseFile()
@@ -1181,8 +1185,8 @@ if __name__ == "__main__":
 	from six import b
 	path = tempfile.mkdtemp()
 	try:
-		#fs = OSFS(path)
-		fs = MemoryFS()
+		fs = OSFS(path)
+		#fs = MemoryFS()
 		#fs.setcontents("test1.txt", b("test one"))
 		fs.create('test.txt')
 		sys.getsizeof(fs)
