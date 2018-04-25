@@ -153,17 +153,82 @@ FILE_ATTRIBUTE_READONLY = 1
 FILE_ATTRIBUTE_SYSTEM = 4
 FILE_ATTRIBUTE_TEMPORARY = 4
 
-FILE_CREATE = 2
+#/* NT Create CreateDisposition values */
+#define FILE_SUPERSEDE				(0)
+#define FILE_OPEN				(1)
+#define FILE_CREATE				(2)
+#define FILE_OPEN_IF				(3)
+#define FILE_OVERWRITE				(4)
+#define FILE_OVERWRITE_IF			(5)
+
+
+# From winnt.h
+#  The following are masks for the predefined standard access types
+READ_CONTROL = 0x20000
+WRITE_DAC = 0x00040000
+WRITE_OWNER = 0x00080000
+SYNCHRONIZE = 0x100000
+
+STANDARD_RIGHTS_REQUIRED = 0x000f0000
+
+STANDARD_RIGHTS_READ = READ_CONTROL
+STANDARD_RIGHTS_WRITE = READ_CONTROL
+STANDARD_RIGHTS_EXECUTE = READ_CONTROL
+
+#STANDARD_RIGHTS_ALL = 0x001F0000L
+
+#SPECIFIC_RIGHTS_ALL = 0x0000FFFFL
+
+# Define access rights to files and directories
+FILE_READ_DATA = 0x1
+FILE_LIST_DIRECTORY = 0x1
+FILE_WRITE_DATA = 0x2
+FILE_ADD_FILE = 0x2
+FILE_APPEND_DATA = 0x4
+FILE_ADD_SUBDIRECTORY = 0x4
+FILE_READ_EA = 0x8
+FILE_WRITE_EA = 0x10
+FILE_EXECUTE = 0x20
+FILE_TRAVERSE = 0x20
+FILE_DELETE_CHILD = 0x40
+FILE_READ_ATTRIBUTES = 0x80
+FILE_WRITE_ATTRIBUTES = 0x100
+DELETE = 0x10000
+READ_CONTROL = 0x20000
+WRITE_DAC = 0x40000
+WRITE_OWNER = 0x80000
+
+
+FILE_GENERIC_READ = STANDARD_RIGHTS_READ | FILE_READ_DATA | FILE_READ_ATTRIBUTES | FILE_READ_EA | SYNCHRONIZE
+FILE_GENERIC_WRITE = STANDARD_RIGHTS_WRITE | FILE_WRITE_DATA | FILE_WRITE_ATTRIBUTES | FILE_WRITE_EA | FILE_APPEND_DATA | SYNCHRONIZE
+FILE_GENERIC_EXECUTE = STANDARD_RIGHTS_EXECUTE | FILE_EXECUTE |FILE_READ_ATTRIBUTES | SYNCHRONIZE
+
+#/* NT Create CreateDisposition values */
+FILE_SUPERSEDE = 0
 FILE_OPEN = 1
+FILE_CREATE = 2
 FILE_OPEN_IF = 3
 FILE_OVERWRITE = 4
-FILE_SUPERSEDE = 0
 FILE_OVERWRITE_IF = 5
-
-FILE_GENERIC_READ = 1179785
-FILE_GENERIC_WRITE = 1179926
-
-FILE_DELETE_ON_CLOSE = 0x00001000
+#/* NT Create CreateOptions bits */
+FILE_DIRECTORY_FILE = 0x00000001
+FILE_WRITE_THROUGH = 0x00000002
+FILE_SEQUENTIAL_ONLY = 0x00000004
+FILE_NON_DIRECTORY_FILE = 0x00000040
+FILE_NO_EA_KNOWLEDGE = 0x00000200
+FILE_EIGHT_DOT_THREE_ONLY = 0x00000400
+FILE_RANDOM_ACCESS = 0x00000800
+FILE_DELETE_ON_CLOSE = 0x1000
+#/* NT Create SecurityFlags bits */
+SMB_SECURITY_DYNAMIC_TRACKING = 0x01
+SMB_SECURITY_EFFECTIVE_ONLY	= 0x02
+#/* NT Create CreateAction return values */
+FILE_SUPERSEDED = 0
+FILE_OPENED = 1
+FILE_CREATED = 2
+FILE_OVERWRITTEN = 3
+FILE_EXISTS = 4
+FILE_DOES_NOT_EXIST = 5
 
 REQ_GENERIC_READ = 0x80 | 0x08 | 0x01
 REQ_GENERIC_WRITE = 0x004 | 0x0100 | 0x002 | 0x0010
@@ -425,29 +490,49 @@ class FSOperations(object):
 
 	@timeout_protect
 	@handle_fs_errors
-	def ZwCreateFile(self, path, securitycontext, access, attribute, sharing, disposition, options, info):
-		path = self._dokanpath2pyfs(path)
+	def ZwCreateFile(self, FileName, SecurityContext, DesiredAccess, FileAttributes, ShareAccess, CreateDisposition, CreateOptions, DokanFileInfo):
+		FileName = self._dokanpath2pyfs(FileName)
 		#  Can't open files that are pending delete.
-		if self._is_pending_delete(path):
+		if self._is_pending_delete(FileName):
 			return STATUS_ACCESS_DENIED
 
+		
+		if DesiredAccess & (FILE_READ_DATA | FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_EXECUTE) == 0:
+			if CreateDisposition == FILE_OPEN or CreateDisposition == FILE_CREATE:
+				# From https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/content/wdm/nf-wdm-zwcreatefile
+				# Do not specify FILE_READ_DATA, FILE_WRITE_DATA, FILE_APPEND_DATA, or FILE_EXECUTE when you create or open a directory.
+				# Ergo if they are not defined we are opening or creating a Directory
+				DokanFileInfo.contents.IsDirectory = 1
+
+
 		retcode = STATUS_SUCCESS
-		if self.fs.isdir(path) or info.contents.IsDirectory:
-			info.contents.IsDirectory = True
-			#exist = self.fs.exists(path)
-			if disposition == FILE_CREATE:
-				if self.fs.exists(path):
-					retcode = STATUS_OBJECT_NAME_COLLISION
-					self.fs.makedir(path)
-			elif disposition == FILE_OPEN_IF:
-				if not self.fs.exists(path):
-					retcode = STATUS_OBJECT_PATH_NOT_FOUND
+		if self.fs.isdir(FileName) or DokanFileInfo.contents.IsDirectory == 1:
+			DokanFileInfo.contents.IsDirectory = 1
+
+			if CreateDisposition == FILE_OPEN:
+				if self.fs.exists(FileName):
+					return STATUS_SUCCESS 
+				else:
+					return FILE_DOES_NOT_EXIST
+					
+			if CreateDisposition == FILE_CREATE:
+				if self.fs.makedir(FileName):
+					return STATUS_SUCCESS
+				return FILE_DOES_NOT_EXIST
+
+			elif CreateDisposition == FILE_OPEN_IF:
+				if self.fs.exists(FileName):
+					return STATUS_SUCCESS 
+				else:
+					if self.fs.makedir(FileName):
+						return STATUS_SUCCESS
+					return FILE_DOES_NOT_EXIST
 		else:
 			# If no access rights are requestsed, only basic metadata is queried.
-			if not access:
-				if self.fs.isdir(path):
-					info.contents.IsDirectory = True
-				elif not self.fs.exists(path):
+			if not DesiredAccess:
+				if self.fs.isdir(FileName):
+					DokanFileInfo.contents.IsDirectory = True
+				elif not self.fs.exists(FileName):
 					return STATUS_OBJECT_NAME_NOT_FOUND
 				return STATUS_SUCCESS
 			#  This is where we'd convert the access mask into an appropriate
@@ -455,48 +540,64 @@ class FSOperations(object):
 			#  details.  I swear MS Word is trying to write to files that it
 			#  opens without asking for write permission.
 			#  For now, just set the mode based on disposition flag.
-			if disposition == FILE_OVERWRITE_IF or disposition == FILE_SUPERSEDE:
-				if self.fs.exists(path):
+			if CreateDisposition == FILE_OPEN:
+				print("FILE_OPEN")
+				if not self.fs.exists(FileName):
+					print(FileName + "FILE_DOES_NOT_EXIST")
+					return FILE_DOES_NOT_EXIST
+				mode = "r+b"
+			elif CreateDisposition == FILE_CREATE:
+				print("FILE_CREATE")
+				if not self.fs.exists(FileName):
+					if fs.create(FileName):
+						return FILE_CREATED
+					else:
+						return FILE_DOES_NOT_EXIST
+				else:
+					print("FILE_EXISTS")
+					return ERROR_ALREADY_EXISTS
+				mode = "w+b"
+			elif CreateDisposition == FILE_OVERWRITE:
+				print("FILE_OVERWRITE")
+				if not self.fs.exists(FileName):
+					retcode = STATUS_OBJECT_NAME_NOT_FOUND
+				mode = "w+b"
+			elif CreateDisposition == FILE_OVERWRITE_IF or CreateDisposition == FILE_SUPERSEDE:
+				print("FILE_OVERWRITE_IF FILE_SUPERSEDE")
+				if self.fs.exists(FileName):
 					retcode = STATUS_OBJECT_NAME_COLLISION
 				mode = "w+b"
-			elif disposition == FILE_OPEN_IF:
-				if not self.fs.exists(path):
+			elif CreateDisposition == FILE_OPEN_IF:
+				if not self.fs.exists(FileName):
+					print("FILE_OPEN_IF")
 					mode = "w+b"
 				else:
 					mode = "r+b"
-			elif disposition == FILE_OPEN:
-				if not self.fs.exists(path):
-					return STATUS_OBJECT_NAME_NOT_FOUND
-				mode = "r+b"
-			elif disposition == FILE_OVERWRITE:
-				if not self.fs.exists(path):
-					return STATUS_OBJECT_NAME_NOT_FOUND
-				mode = "w+b"
-			elif disposition == FILE_CREATE:
-				if self.fs.exists(path):
-					return STATUS_OBJECT_NAME_COLLISION
-				mode = "w+b"
+			
 			else:
+				print("WRONG")
 				mode = "r+b"
 			#  Try to open the requested file.  It may actually be a directory.
-			info.contents.Context = 1
+			DokanFileInfo.contents.Context = 1
 			try:
-				f = self.fs.open(path, mode)
+				print("try_open")
+				print(mode)
+				f = self.fs.open(FileName, mode)
 				#  print(path, mode, repr(f))
 			except ResourceInvalid:
-				info.contents.IsDirectory = True
+				DokanFileInfo.contents.IsDirectory = True
 			except FSError:
 				#  Sadly, win32 OSFS will raise all kinds of strange errors
 				#  if you try to open() a directory.  Need to check by hand.
-				if self.fs.isdir(path):
-					info.contents.IsDirectory = True
+				if self.fs.isdir(FileName):
+					DokanFileInfo.contents.IsDirectory = True
 				else:
 					# print(e)
 					raise
 			else:
-				info.contents.Context = self._reg_file(f, path)
-			if retcode == STATUS_SUCCESS and (options & FILE_DELETE_ON_CLOSE):
-				self._pending_delete.add(path)
+				DokanFileInfo.contents.Context = self._reg_file(f, FileName)
+			if retcode == STATUS_SUCCESS and (CreateOptions & FILE_DELETE_ON_CLOSE):
+				self._pending_delete.add(FileName)
 		return retcode
 
 	@timeout_protect
@@ -540,9 +641,9 @@ class FSOperations(object):
 		(file, _, lock) = self._get_file(info.contents.Context)
 		lock.acquire()
 		try:
-			status = self._check_lock(path, offset, nBytesToRead, info)
-			if status:
-				return status
+			file_lock_status = self._check_lock(path, offset, nBytesToRead, info)
+			if file_lock_status != 0:
+				return file_lock_status
 			#  This may be called after Cleanup, meaning we
 			#  need to re-open the file.
 			if file.closed:
@@ -560,16 +661,19 @@ class FSOperations(object):
 	@handle_fs_errors
 	def WriteFile(self, path, buffer, nBytesToWrite, nBytesWritten, offset, info):
 		path = self._dokanpath2pyfs(path)
+		print("Write to file "+ str(path))
 		fh = info.contents.Context
 		(file, _, lock) = self._get_file(fh)
 		lock.acquire()
 		try:
-			status = self._check_lock(path, offset, nBytesToWrite, info)
-			if status:
-				return status
+			file_lock_status = self._check_lock(path, offset, nBytesToWrite, info)
+			print(file_lock_status)
+			if file_lock_status !=0:
+				return file_lock_status
 			#  This may be called after Cleanup, meaning we
 			#  need to re-open the file.
 			if file.closed:
+				print('reopenWriteFile')
 				file = self.fs.open(path, file.mode)
 				self._rereg_file(info.contents.Context, file)
 			if info.contents.WriteToEndOfFile:
@@ -1171,8 +1275,8 @@ if __name__ == "__main__":
 	from six import b
 	path = tempfile.mkdtemp()
 	try:
-		#fs = OSFS(path)
-		fs = MemoryFS()
+		fs = OSFS(path)
+		#fs = MemoryFS()
 		fs.create('test.txt')
 		fs.appendtext('test.txt', 'this is a test', encoding=u'utf-8', errors=None, newline=u'')
 		flags = DOKAN_OPTION_DEBUG | DOKAN_OPTION_STDERR | DOKAN_OPTION_REMOVABLE
