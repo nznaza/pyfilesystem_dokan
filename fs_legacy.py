@@ -179,7 +179,7 @@ class PathMap(object):
 					m = m[name]
 				except KeyError:
 					return
-		for (nm, subm) in list(m.items()):
+		for (nm, subm) in m.iteritems():
 			if not nm:
 				yield abspath(root)
 			else:
@@ -188,7 +188,7 @@ class PathMap(object):
 					yield subk
 
 	def __iter__(self):
-		return iter(list(self.keys()))
+		return self.iterkeys()
 
 	def keys(self, root="/"):
 		return list(self.iterkeys(root))
@@ -203,7 +203,7 @@ class PathMap(object):
 					m = m[name]
 				except KeyError:
 					return
-		for (nm, subm) in list(m.items()):
+		for (nm, subm) in m.iteritems():
 			if not nm:
 				yield subm
 			else:
@@ -224,7 +224,7 @@ class PathMap(object):
 					m = m[name]
 				except KeyError:
 					return
-		for (nm, subm) in list(m.items()):
+		for (nm, subm) in m.iteritems():
 			if not nm:
 				yield (abspath(normpath(root)), subm)
 			else:
@@ -247,7 +247,7 @@ class PathMap(object):
 				m = m[name]
 			except KeyError:
 				return
-		for (nm, subm) in list(m.items()):
+		for (nm, subm) in m.iteritems():
 			if nm and subm:
 				yield nm
 
