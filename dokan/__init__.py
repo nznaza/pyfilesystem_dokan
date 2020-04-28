@@ -512,11 +512,10 @@ class FSOperations(object):
 						return STATUS_SUCCESS
 					return FILE_DOES_NOT_EXIST
 		else:
-			retcode =  STATUS_SUCCESS
+			#retcode =  STATUS_SUCCESS
 			if DesiredAccess == 0:
-			# DesiredAcces shold not be zero
+				# DesiredAccess shold not be zero
 				return FILE_DOES_NOT_EXIST
-
 			if CreateDisposition == FILE_OPEN:
 				mode = "r+b"
 				if not self.fs.exists(FileName):
@@ -758,7 +757,7 @@ class FSOperations(object):
 
 	@timeout_protect
 	@handle_fs_errors
-	def MoveFile(self, FileName, NewFileName, ReplaceIfExisting, DokanFileInfo):
+	def MoveFile(self, FileName, NewFileName, overwrite, DokanFileInfo):
 		#  Close the file if we have an open handle to it.
 		if DokanFileInfo.contents.Context >= MinimumFileHandler:
 			(file, _, lock) = self._get_file(DokanFileInfo.contents.Context)
@@ -773,7 +772,7 @@ class FSOperations(object):
 		if DokanFileInfo.contents.IsDirectory:
 			self.fs.movedir(FileName, NewFileName, create=True)
 		else:
-			self.fs.move(FileName, NewFileName, ReplaceIfExisting=True)
+			self.fs.move(FileName, NewFileName, overwrite=True)
 		return STATUS_SUCCESS
 
 	@timeout_protect
