@@ -488,18 +488,17 @@ class FSOperations(object):
 				# From https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/content/wdm/nf-wdm-zwcreatefile
 				# Do not specify FILE_READ_DATA, FILE_WRITE_DATA, FILE_APPEND_DATA, or FILE_EXECUTE when you create or open a directory.
 				# If they are not defined we are opening or creating a Directory
-				DokanFileInfo.contents.IsDirectory = 1
+				DokanFileInfo.contents.IsDirectory = 0
 
 		retcode = STATUS_SUCCESS
 		if self.fs.isdir(FileName) or DokanFileInfo.contents.IsDirectory == 1:
 			DokanFileInfo.contents.IsDirectory = 1
-
 			if CreateDisposition == FILE_OPEN:
 				if self.fs.exists(FileName):
-					return STATUS_SUCCESS 
+					return STATUS_SUCCESS
 				else:
 					return FILE_DOES_NOT_EXIST
-					
+
 			if CreateDisposition == FILE_CREATE:
 				if self.fs.makedir(FileName):
 					return STATUS_SUCCESS
@@ -507,7 +506,7 @@ class FSOperations(object):
 
 			elif CreateDisposition == FILE_OPEN_IF:
 				if self.fs.exists(FileName):
-					return STATUS_SUCCESS 
+					return STATUS_SUCCESS
 				else:
 					if self.fs.makedir(FileName):
 						return STATUS_SUCCESS
@@ -533,7 +532,7 @@ class FSOperations(object):
 			elif CreateDisposition == FILE_OVERWRITE_IF:
 				mode = "w+b"
 				retcode = FILE_OVERWRITTEN
-			elif CreateDisposition == FILE_SUPERSEDE: 
+			elif CreateDisposition == FILE_SUPERSEDE:
 				mode = "w+b"
 				retcode = FILE_SUPERSEDED
 			elif CreateDisposition == FILE_OPEN_IF:
@@ -1009,7 +1008,7 @@ def mount(fs, path, foreground=False, ready_callback=None, unmount_callback=None
 					* numthreads:  number of threads to use for handling Dokan requests
 					* fsname:  name to display in explorer etc
 					* flags:   DOKAN_OPTIONS bitmask
-					* securityfolder:  folder path used to duplicate security rights on all folders 
+					* securityfolder:  folder path used to duplicate security rights on all folders
 					* FSOperationsClass:  custom FSOperations subclass to use
 
 	"""
