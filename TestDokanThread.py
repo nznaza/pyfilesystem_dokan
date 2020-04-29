@@ -1,4 +1,4 @@
-import dokan
+import dokanmount
 import os.path
 import tempfile
 from fs.osfs import OSFS
@@ -12,9 +12,9 @@ fs.appendtext('test.txt', 'This is a test file', encoding=u'utf-8', errors=None,
 fs.makedir("TestDir")
 fs.create('TestDir/subtest.txt')
 fs.appendtext('TestDir/subtest.txt', 'This is a test file in a subfolder', encoding=u'utf-8', errors=None, newline=u'')
-#flags = dokan.DOKAN_OPTION_DEBUG | dokan.DOKAN_OPTION_STDERR | dokan.DOKAN_OPTION_REMOVABLE
-flags = dokan.DOKAN_OPTION_REMOVABLE
-dm = dokan.mount(fs, "Q:\\", foreground=False, numthreads=2, flags=flags)
+#flags = dokanmount.DOKAN_OPTION_DEBUG | dokanmount.DOKAN_OPTION_STDERR | dokanmount.DOKAN_OPTION_REMOVABLE
+flags = dokanmount.DOKAN_OPTION_REMOVABLE
+dm = dokanmount.mount(fs, "Q:\\", foreground=False, numthreads=2, flags=flags)
 print ("Memory FS is now mounted!")
 input("Press any key to create file...")
 fs.create('PostMountCreatedFile.txt')

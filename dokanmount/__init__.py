@@ -88,7 +88,7 @@ except ImportError:
 	import pickle
 
 try:
-	import dokan.libdokan
+	import dokanmount.libdokan
 except (NotImplementedError, EnvironmentError, ImportError, NameError):
 	is_available = False
 	sys.modules.pop("libdokan", None)
