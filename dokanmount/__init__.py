@@ -67,6 +67,7 @@ import errno
 import logging
 import os
 import stat as statinfo
+from multiprocessing import Process
 import subprocess
 import sys
 import threading
@@ -87,8 +88,8 @@ except ImportError:
 	import pickle
 
 try:
-	import dokan.libdokan
-except (NotImplementedError, EnvironmentError, ImportError, NameError,):
+	import dokanmount.libdokan
+except (NotImplementedError, EnvironmentError, ImportError, NameError):
 	is_available = False
 	sys.modules.pop("libdokan", None)
 	libdokan = None
@@ -488,18 +489,17 @@ class FSOperations(object):
 				# From https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/content/wdm/nf-wdm-zwcreatefile
 				# Do not specify FILE_READ_DATA, FILE_WRITE_DATA, FILE_APPEND_DATA, or FILE_EXECUTE when you create or open a directory.
 				# If they are not defined we are opening or creating a Directory
-				DokanFileInfo.contents.IsDirectory = 1
+				DokanFileInfo.contents.IsDirectory = 0
 
 		retcode = STATUS_SUCCESS
 		if self.fs.isdir(FileName) or DokanFileInfo.contents.IsDirectory == 1:
 			DokanFileInfo.contents.IsDirectory = 1
-
 			if CreateDisposition == FILE_OPEN:
 				if self.fs.exists(FileName):
-					return STATUS_SUCCESS 
+					return STATUS_SUCCESS
 				else:
 					return FILE_DOES_NOT_EXIST
-					
+
 			if CreateDisposition == FILE_CREATE:
 				if self.fs.makedir(FileName):
 					return STATUS_SUCCESS
@@ -507,17 +507,16 @@ class FSOperations(object):
 
 			elif CreateDisposition == FILE_OPEN_IF:
 				if self.fs.exists(FileName):
-					return STATUS_SUCCESS 
+					return STATUS_SUCCESS
 				else:
 					if self.fs.makedir(FileName):
 						return STATUS_SUCCESS
 					return FILE_DOES_NOT_EXIST
 		else:
-			retcode =  STATUS_SUCCESS
+			#retcode =  STATUS_SUCCESS
 			if DesiredAccess == 0:
-			# DesiredAcces shold not be zero
+				# DesiredAccess shold not be zero
 				return FILE_DOES_NOT_EXIST
-
 			if CreateDisposition == FILE_OPEN:
 				mode = "r+b"
 				if not self.fs.exists(FileName):
@@ -533,7 +532,7 @@ class FSOperations(object):
 			elif CreateDisposition == FILE_OVERWRITE_IF:
 				mode = "w+b"
 				retcode = FILE_OVERWRITTEN
-			elif CreateDisposition == FILE_SUPERSEDE: 
+			elif CreateDisposition == FILE_SUPERSEDE:
 				mode = "w+b"
 				retcode = FILE_SUPERSEDED
 			elif CreateDisposition == FILE_OPEN_IF:
@@ -759,7 +758,7 @@ class FSOperations(object):
 
 	@timeout_protect
 	@handle_fs_errors
-	def MoveFile(self, FileName, NewFileName, ReplaceIfExisting, DokanFileInfo):
+	def MoveFile(self, FileName, NewFileName, overwrite, DokanFileInfo):
 		#  Close the file if we have an open handle to it.
 		if DokanFileInfo.contents.Context >= MinimumFileHandler:
 			(file, _, lock) = self._get_file(DokanFileInfo.contents.Context)
@@ -774,7 +773,7 @@ class FSOperations(object):
 		if DokanFileInfo.contents.IsDirectory:
 			self.fs.movedir(FileName, NewFileName, create=True)
 		else:
-			self.fs.move(FileName, NewFileName, ReplaceIfExisting=True)
+			self.fs.move(FileName, NewFileName, overwrite=True)
 		return STATUS_SUCCESS
 
 	@timeout_protect
@@ -990,6 +989,7 @@ def _check_path_string(FileName):  # TODO Probably os.path has a better check fo
 		raise ValueError("invalid path: %r" % (FileName,))
 
 
+
 def mount(fs, path, foreground=False, ready_callback=None, unmount_callback=None, **kwds):
 	"""Mount the given FS at the given path, using Dokan.
 
@@ -1009,73 +1009,24 @@ def mount(fs, path, foreground=False, ready_callback=None, unmount_callback=None
 					* numthreads:  number of threads to use for handling Dokan requests
 					* fsname:  name to display in explorer etc
 					* flags:   DOKAN_OPTIONS bitmask
-					* securityfolder:  folder path used to duplicate security rights on all folders 
+					* securityfolder:  folder path used to duplicate security rights on all folders
 					* FSOperationsClass:  custom FSOperations subclass to use
-
 	"""
+
 	if libdokan is None:
 		raise OSError("the dokan library is not available")
 	_check_path_string(path)
-	#  This function captures the logic of checking whether the Dokan mount
-	#  is up and running.  Unfortunately I can't find a way to get this
-	#  via a callback in the Dokan API.  Instead we just check for the path
-	#  in a loop, polling the mount proc to make sure it hasn't died.
 
-	def check_alive(mp):
-		if mp and mp.poll() is not None:
-			raise OSError("dokan mount process exited prematurely")
-
-	def check_ready(mp=None):
-		if ready_callback is not False:
-			check_alive(mp)
-			for _ in  six.moves.range(100):
-				try:
-					os.stat(path)
-				except EnvironmentError:
-					check_alive(mp)
-					time.sleep(0.05)
-				else:
-					check_alive(mp)
-					if ready_callback:
-						return ready_callback()
-					else:
-						return None
-			else:
-				check_alive(mp)
-				raise OSError("dokan mount process seems to be hung")
 	#  Running the the foreground is the final endpoint for the mount
 	#  operation, it's where we call DokanMain().
 	if foreground:
-		numthreads = kwds.pop("numthreads", 0)
-		flags = kwds.pop("flags", 0)
-		FSOperationsClass = kwds.pop("FSOperationsClass", FSOperations)
-		opts = libdokan.DOKAN_OPTIONS(
-			libdokan.DOKAN_MINIMUM_COMPATIBLE_VERSION, numthreads, flags, 0, path, "", 2000, 512, 512)
-		ops = FSOperationsClass(fs, **kwds)
-		if ready_callback:
-			check_thread = threading.Thread(target=check_ready)
-			check_thread.daemon = True
-			check_thread.start()
-		opstruct = ops.get_ops_struct()
-		res = libdokan.DokanMain(ctypes.byref(opts), ctypes.byref(opstruct))
-		if res != DOKAN_SUCCESS:
-			raise OSError("Dokan failed with error: " + str(res))
-		if unmount_callback:
-			unmount_callback()
+		MountProcess._mount(fs, path, ready_callback, unmount_callback, **kwds)
 	#  Running the background, spawn a subprocess and wait for it
 	#  to be ready before returning.
 	else:
-		mp = MountProcess(fs, path, kwds)
-		check_ready(mp)
-		if unmount_callback:
-			orig_unmount = mp.unmount
-
-			def new_unmount():
-				orig_unmount()
-				unmount_callback()
-			mp.unmount = new_unmount
+		mp = MountProcess(fs, path, ready_callback, unmount_callback, **kwds)
+		mp.start()
 		return mp
-
 
 def unmount(path):
 	"""Unmount the given path.
@@ -1089,74 +1040,90 @@ def unmount(path):
 		raise OSError("filesystem could not be unmounted: %s" % (path,))
 
 
-class MountProcess(subprocess.Popen):
-	"""subprocess.Popen subclass managing a Dokan mount.
-
-	This is a subclass of subprocess.Popen, designed for easy management of
-	a Dokan mount in a background process.  Rather than specifying the command
-	to execute, pass in the FS object to be mounted, the target path
-	and a dictionary of options for the Dokan process.
-
-	In order to be passed successfully to the new process, the FS object
-	must be pickleable. Since win32 has no fork() this restriction is not
-	likely to be lifted (see also the "multiprocessing" module)
-
-	This class has an extra attribute 'path' giving the path of the mounted
-	filesystem, and an extra method 'unmount' that will cleanly unmount it
-	and terminate the process.
-	"""
-
-	#  This works by spawning a new python interpreter and passing it the
-	#  pickled (fs,path,opts) tuple on the command-line.  Something like this:
-	#
-	#    python -c "import MountProcess; MountProcess._do_mount('..data..')
-	#
-
-	unmount_timeout = 5
-
-	def __init__(self, fs, path, dokan_opts={}, nowait=False, **kwds):
+class MountProcess(threading.Thread):
+	_pyfs = None
+	_path = None
+	_dokan_opts = None
+	_kwds = None
+	_ready_callback = None
+	_unmount_callback = None
+	def __init__(self, pyfs, path, dokan_opts={}, ready_callback=None, unmount_callback=None, **kwds):
+		threading.Thread.__init__(self)
 		if libdokan is None:
 			raise OSError("the dokan library is not available")
 		_check_path_string(path)
 		self.path = path
-		cmd = "try: import cPickle as pickle;\n"
-		cmd = cmd + "except ImportError: import pickle;\n"
-		cmd = cmd + "data = pickle.loads(%s); "
-		cmd = cmd + "from fs.expose.dokan import MountProcess; "
-		cmd = cmd + "MountProcess._do_mount(data)"
-		cmd = cmd % (repr(pickle.dumps((fs, path, dokan_opts, nowait), -1)),)
-		cmd = [sys.executable, "-c", cmd]
-		super(MountProcess, self).__init__(cmd, **kwds)
+		self._pyfs = pyfs
+		self._path = path
+		self._dokan_opts = dokan_opts
+		self._ready_callback = ready_callback
+		self._unmount_callback = unmount_callback
+		self._kwds = kwds
+	#  This function captures the logic of checking whether the Dokan mount
+	#  is up and running.  Unfortunately I can't find a way to get this
+	#  via a callback in the Dokan API.  Instead we just check for the path
+	#  in a loop, polling the mount proc to make sure it hasn't died.
+	def check_alive(self, mp):
+		if mp and mp.poll() is not None:
+			raise OSError("dokan mount process exited prematurely")
+
+	def check_ready(self, mp=None):
+		if _ready_callback is not None:
+			check_alive(mp)
+			for _ in  six.moves.range(100):
+				try:
+					os.stat(path)
+				except EnvironmentError:
+					check_alive(mp)
+					time.sleep(0.05)
+				else:
+					check_alive(mp)
+					if _ready_callback:
+						return _ready_callback()
+					else:
+						return None
+			else:
+				check_alive(mp)
+				raise OSError("dokan mount process seems to be hung")
+
+	@staticmethod
+	def _mount(fs, path, ready_callback, unmount_callback, **kwds):
+		numthreads = kwds.pop("numthreads", 0)
+		flags = kwds.pop("flags", 0)
+		FSOperationsClass = kwds.pop("FSOperationsClass", FSOperations)
+		opts = libdokan.DOKAN_OPTIONS(libdokan.DOKAN_MINIMUM_COMPATIBLE_VERSION, numthreads, flags, 0, path, "", 2000, 512, 512)
+		ops = FSOperationsClass(fs, **kwds)
+		if ready_callback:
+			check_thread = threading.Thread(target=check_ready)
+			check_thread.daemon = True
+			check_thread.start()
+		opstruct = ops.get_ops_struct()
+		res = libdokan.DokanMain(ctypes.byref(opts), ctypes.byref(opstruct))
+		if res != DOKAN_SUCCESS:
+			raise OSError("Dokan failed with error: " + str(res))
+		if unmount_callback:
+			unmount_callback()
+
+	unmount_timeout = 5
+
+	def run(self):
+		self._mount(self._pyfs, self._path, self._ready_callback, self._unmount_callback, **(self._kwds))
 
 	def unmount(self):
 		"""Cleanly unmount the Dokan filesystem, terminating this subprocess."""
 		if not libdokan.DokanRemoveMountPoint(self.path):
 			raise OSError("the filesystem could not be unmounted: %s" %(self.path,))
-		self.terminate()
+		#self.terminate()
 
-	if not hasattr(subprocess.Popen, "terminate"):
-		def terminate(self):
-			"""Gracefully terminate the subprocess."""
-			kernel32.TerminateProcess(int(self), -1)
+	#if not hasattr(subprocess.Popen, "terminate"):
+	#	def terminate(self):
+	#		"""Gracefully terminate the subprocess."""
+	#		kernel32.TerminateProcess(int(self), -1)
 
-	if not hasattr(subprocess.Popen, "kill"):
-		def kill(self):
-			"""Forcibly terminate the subprocess."""
-			kernel32.TerminateProcess(int(self), -1)
-
-	@staticmethod
-	def _do_mount(data):
-		"""Perform the specified mount."""
-		(fs, path, opts, nowait) = data
-		opts["foreground"] = True
-
-		def unmount_callback():
-			fs.close()
-		opts["unmount_callback"] = unmount_callback
-		if nowait:
-			opts["ready_callback"] = False
-		mount(fs, path, **opts)
-
+	#if not hasattr(subprocess.Popen, "kill"):
+	#	def kill(self):
+	#		"""Forcibly terminate the subprocess."""
+	#		kernel32.TerminateProcess(int(self), -1)
 
 class Win32SafetyFS(WrapFS):
 	"""FS wrapper for extra safety when mounting on win32.

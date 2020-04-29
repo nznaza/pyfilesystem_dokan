@@ -31,7 +31,7 @@ WCHAR = c_wchar
 
 DokanVersion.restype = ULONG
 DokanVersion.argtypes = ()
-DOKAN_MINIMUM_COMPATIBLE_VERSION = 100  # this is release 1.0.0
+DOKAN_MINIMUM_COMPATIBLE_VERSION = 110
 if DokanVersion() < DOKAN_MINIMUM_COMPATIBLE_VERSION:
     raise ImportError("Dokan DLL is too old")
 
