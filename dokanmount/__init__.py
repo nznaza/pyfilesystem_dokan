@@ -80,23 +80,11 @@ from fs.errors import FSError, ResourceInvalid, Unsupported
 from fs.path import basename, combine, join, normpath, recursepath, relpath
 from fs.wrapfs import WrapFS
 
-from fs_legacy import PathMap, convert_fs_errors
+from ._fs_legacy import PathMap, convert_fs_errors
+from . import _libdokan as libdokan
 
-try:
-	import cPickle as pickle
-except ImportError:
-	import pickle
-
-try:
-	import dokanmount.libdokan
-except (NotImplementedError, EnvironmentError, ImportError, NameError):
-	is_available = False
-	sys.modules.pop("libdokan", None)
-	libdokan = None
-else:
-	is_available = True
-	from ctypes.wintypes import LPCWSTR, WCHAR
-	kernel32 = ctypes.windll.kernel32
+from ctypes.wintypes import LPCWSTR, WCHAR
+kernel32 = ctypes.windll.kernel32
 
 logger = logging.getLogger("fs.expose.dokan")
 
@@ -1013,8 +1001,7 @@ def mount(fs, path, foreground=False, ready_callback=None, unmount_callback=None
 					* FSOperationsClass:  custom FSOperations subclass to use
 	"""
 
-	if libdokan is None:
-		raise OSError("the dokan library is not available")
+
 	_check_path_string(path)
 
 	#  Running the the foreground is the final endpoint for the mount
@@ -1155,23 +1142,3 @@ class Win32SafetyFS(WrapFS):
 			if path.lower().startswith("autorun."):
 				path = "_" + path
 		return path
-
-
-if __name__ == "__main__":
-	import os.path
-	import tempfile
-	from fs.osfs import OSFS
-	from fs.memoryfs import MemoryFS
-	from shutil import rmtree
-	from six import b
-	path = tempfile.mkdtemp()
-	try:
-		#fs = OSFS(path)
-		fs = MemoryFS()
-		fs.create('test.txt')
-		fs.appendtext('test.txt', 'this is a test', encoding=u'utf-8', errors=None, newline=u'')
-		flags = DOKAN_OPTION_DEBUG | DOKAN_OPTION_STDERR | DOKAN_OPTION_REMOVABLE
-		mount(fs, "Q:\\", foreground=True, numthreads=1, flags=flags)
-		fs.close()
-	finally:
-		rmtree(path)
